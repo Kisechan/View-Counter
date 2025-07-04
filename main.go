@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -21,21 +22,35 @@ func initDB() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY KEY CHECK (id = 1), total INTEGER);`)
-	if err != nil {
-		log.Fatal(err)
-	}
-	_, err = db.Exec(`INSERT OR IGNORE INTO counter (id, total) VALUES (1, 0);`)
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS counter (
+		domain TEXT PRIMARY KEY,
+		total INTEGER
+	);`)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
+func extractDomain(r *http.Request) string {
+	// 优先使用 nginx 传递的真实主机名
+	host := r.Header.Get("X-Real-Host")
+	if host == "" {
+		// 备选方式：使用 Host 头部
+		host = r.Host
+	}
+	return strings.ToLower(strings.Split(host, ":")[0])
+}
+
 func incrementView(w http.ResponseWriter, r *http.Request) {
+	domain := extractDomain(r)
+
 	mu.Lock()
 	defer mu.Unlock()
 
-	_, err := db.Exec(`UPDATE counter SET total = total + 1 WHERE id = 1;`)
+	_, err := db.Exec(`
+		INSERT INTO counter (domain, total) VALUES (?, 1)
+		ON CONFLICT(domain) DO UPDATE SET total = total + 1
+	`, domain)
 	if err != nil {
 		http.Error(w, "DB error", http.StatusInternalServerError)
 		return
@@ -44,12 +59,17 @@ func incrementView(w http.ResponseWriter, r *http.Request) {
 }
 
 func getView(w http.ResponseWriter, r *http.Request) {
+	domain := extractDomain(r)
+
 	var total int
-	err := db.QueryRow(`SELECT total FROM counter WHERE id = 1;`).Scan(&total)
-	if err != nil {
+	err := db.QueryRow(`SELECT total FROM counter WHERE domain = ?`, domain).Scan(&total)
+	if err == sql.ErrNoRows {
+		total = 0
+	} else if err != nil {
 		http.Error(w, "DB error", http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "%d", total)
 }
@@ -59,11 +79,12 @@ func main() {
 	fmt.Println("Database initialized successfully")
 
 	http.HandleFunc("/api/view", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		switch r.Method {
+		case http.MethodPost:
 			incrementView(w, r)
-		} else if r.Method == http.MethodGet {
+		case http.MethodGet:
 			getView(w, r)
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
