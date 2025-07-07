@@ -59,6 +59,39 @@ POST /api/view
 GET /api/view
 ```
 
+### 使用示例
+
+实现记录和获取访问量的 JS 脚本：
+```js
+//views.js
+(function () {
+  const api = "<API 路径>";
+  const el = document.getElementById("site-view-counter");
+
+  if (!el) return;
+
+  // POST
+  fetch(api, { method: "POST" });
+
+  // GET
+  fetch(api)
+    .then(res => res.text())
+    .then(count => {
+      el.textContent = "本站总访问量" + count + " 次";
+    })
+    .catch(() => {
+      el.textContent = "访问量数据获取失败";
+    });
+})();
+```
+
+并在需要记录浏览数的网页添加：
+```html
+<script async src="<path>/views.js"></script>
+<span id="site-view-counter">本站总访问量：加载中...</span>
+```
+
+
 ## 许可证
 
 [MIT](./LICENSE)
