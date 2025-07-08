@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type RateLimiter struct {
@@ -24,10 +26,9 @@ func NewRateLimiter(maxRequests int, window time.Duration) *RateLimiter {
 		maxRequests: maxRequests,
 		window:      window,
 	}
-	
-	// 定期清理旧的记录
+
 	go rl.cleanup()
-	
+
 	return rl
 }
 
@@ -43,35 +44,31 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = forwarded
-		}
-		
+func (rl *RateLimiter) Middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+
 		rl.mu.Lock()
 		defer rl.mu.Unlock()
-		
+
 		info, exists := rl.ips[ip]
 		if !exists {
 			info = &rateInfo{}
 			rl.ips[ip] = info
 		}
-		
-		// 如果超过时间窗口，重置
+
 		if time.Since(info.lastSeen) > rl.window {
 			info.count = 0
 		}
-		
+
 		info.count++
 		info.lastSeen = time.Now()
-		
+
 		if info.count > rl.maxRequests {
-			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests"})
 			return
 		}
-		
-		next.ServeHTTP(w, r)
-	})
+
+		c.Next()
+	}
 }

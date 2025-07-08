@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"net/http"
 	"time"
 
 	"view-counter/config"
@@ -11,6 +9,8 @@ import (
 	"view-counter/handler"
 	"view-counter/middleware"
 	"view-counter/service"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -23,14 +23,7 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
-	fmt.Println("Database initialized successfully")
-
-	// 初始化归档服务 每天执行一次，保留 30 天数据
-	// archiver := service.NewArchiver(db, "./views_archive.db", 24*time.Hour, 30*24*time.Hour)
-	// go archiver.Start()
-
-	// 初始化速率限制中间件 (每分钟最多60次请求)
-	rateLimiter := middleware.NewRateLimiter(60, time.Minute)
+	log.Println("Database initialized successfully")
 
 	// 初始化服务层
 	counterService := service.NewCounterService(db)
@@ -38,9 +31,23 @@ func main() {
 	// 初始化处理器
 	viewsHandler := handler.NewViewsHandler(counterService)
 
-	// 设置带有请求速率限制的路由
-	http.Handle("/api/view", rateLimiter.Middleware(http.HandlerFunc(viewsHandler.HandleViewsRequest)))
+	// 初始化 Gin 引擎
+	router := gin.Default()
+
+	// 初始化速率限制中间件 (每分钟最多60次请求)
+	rateLimiter := middleware.NewRateLimiter(60, time.Minute)
+
+	// 创建 API 路由组并应用中间件
+	api := router.Group("/api")
+	api.Use(rateLimiter.Middleware()) // 将中间件应用于 /api 组下的所有路由
+	{
+		api.POST("/view", viewsHandler.IncrementView)
+		api.GET("/view", viewsHandler.GetView)
+	}
 
 	log.Println("Listening on :8081")
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	// 启动服务
+	if err := router.Run(":8081"); err != nil {
+		log.Fatalf("Failed to run server: %v", err)
+	}
 }

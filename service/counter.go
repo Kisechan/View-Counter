@@ -2,13 +2,10 @@ package service
 
 import (
 	"database/sql"
-	"net/http"
 	"sync"
 	"time"
-	"fmt"
 
 	"view-counter/database"
-	"view-counter/utils"
 )
 
 type CounterService struct {
@@ -23,24 +20,18 @@ func NewCounterService(db *sql.DB) *CounterService {
 	}
 }
 
-func (s *CounterService) IncrementView(w http.ResponseWriter, r *http.Request) {
-	domain := utils.ExtractDomain(r)
-	if domain == "" {
-		http.Error(w, "Domain not found", http.StatusBadRequest)
-		return
-	}
-
+// IncrementView 只负责业务逻辑，不再处理 HTTP
+func (s *CounterService) IncrementView(domain string) error {
 	currentDate := time.Now().UTC().Format("2006-01-02")
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
-		return
+		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() // 如果后续出错，自动回滚
 
 	// 更新日统计
 	_, err = tx.Exec(`
@@ -49,8 +40,7 @@ func (s *CounterService) IncrementView(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT(domain, date) DO UPDATE SET count = count + 1
 	`, domain, currentDate)
 	if err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	// 更新总统计
@@ -60,36 +50,24 @@ func (s *CounterService) IncrementView(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT(domain) DO UPDATE SET count = count + 1
 	`, domain)
 	if err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	if err = tx.Commit(); err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
-		return
-	}
-	
-	w.WriteHeader(http.StatusOK)
+	// 提交事务
+	return tx.Commit()
 }
 
-func (s *CounterService) GetView(w http.ResponseWriter, r *http.Request) {
-	domain := utils.ExtractDomain(r)
-	if domain == "" {
-		http.Error(w, "Domain not found", http.StatusBadRequest)
-		return
-	}
-
+// GetView 只负责业务逻辑，不再处理 HTTP
+func (s *CounterService) GetView(domain string) (int, error) {
 	var total int
 	err := s.db.QueryRow(`
 		SELECT count FROM total_views WHERE domain = ?
 	`, domain).Scan(&total)
-	if err == sql.ErrNoRows {
-		total = 0
-	} else if err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
-		return
+
+	// 将错误传递给上层(handler)处理
+	if err != nil {
+		return 0, err
 	}
 
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(fmt.Sprintf("%d", total)))
+	return total, nil
 }
