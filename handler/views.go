@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"net/http"
+	"time"
 	"view-counter/service"
 	"view-counter/utils"
 
@@ -53,4 +54,40 @@ func (h *ViewsHandler) GetView(c *gin.Context) {
 	}
 
 	c.String(http.StatusOK, "%d", total)
+}
+
+// 处理获取每日访问量统计的请求
+func (h *ViewsHandler) GetDailyStatistics(c *gin.Context) {
+	domain := utils.ExtractDomain(c.Request)
+	if domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Domain not found"})
+		return
+	}
+
+	// 从查询参数获取日期范围
+	startDateStr := c.DefaultQuery("start_date", "")
+	endDateStr := c.DefaultQuery("end_date", "")
+
+	// 验证日期格式并设置默认值
+	if startDateStr == "" {
+		startDateStr = time.Now().AddDate(0, 0, -6).Format("2006-01-02")
+		// 默认过去7天
+	}
+	if endDateStr == "" {
+		endDateStr = time.Now().Format("2006-01-02")
+		// 默认今天
+	}
+
+	results, err := h.counterService.GetDailyViews(domain, startDateStr, endDateStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "DB error when fetching daily statistics"})
+		return
+	}
+
+	if results == nil {
+		// 如果没有数据，返回空数组而不是 null
+		results = []service.DailyViewResult{}
+	}
+
+	c.JSON(http.StatusOK, results)
 }

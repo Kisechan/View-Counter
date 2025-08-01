@@ -8,6 +8,12 @@ import (
 	"view-counter/database"
 )
 
+// 承载每日访问量统计结果
+type DailyViewResult struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
 type CounterService struct {
 	db *sql.DB
 	mu *sync.Mutex
@@ -70,4 +76,28 @@ func (s *CounterService) GetView(domain string) (int, error) {
 	}
 
 	return total, nil
+}
+
+// 获取指定域名在某个日期范围内的每日访问量
+func (s *CounterService) GetDailyViews(domain, startDate, endDate string) ([]DailyViewResult, error) {
+	rows, err := s.db.Query(`
+		SELECT date, count FROM daily_views
+		WHERE domain = ? AND date BETWEEN ? AND ?
+		ORDER BY date ASC
+	`, domain, startDate, endDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []DailyViewResult
+	for rows.Next() {
+		var dv DailyViewResult
+		if err := rows.Scan(&dv.Date, &dv.Count); err != nil {
+			return nil, err
+		}
+		results = append(results, dv)
+	}
+
+	return results, nil
 }

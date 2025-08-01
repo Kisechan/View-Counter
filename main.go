@@ -43,6 +43,7 @@ func main() {
 	{
 		api.POST("/view", viewsHandler.IncrementView)
 		api.GET("/view", viewsHandler.GetView)
+		api.GET("/statistics/daily", viewsHandler.GetDailyStatistics)
 	}
 
 	log.Println("Listening on :8081")
