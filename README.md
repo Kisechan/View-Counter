@@ -59,6 +59,11 @@ POST /api/view
 GET /api/view
 ```
 
+获取统计信息：
+```text
+GET /api/statistics/daily[其他数据]
+```
+
 ### 使用示例
 
 实现记录和获取访问量的 JS 脚本：
@@ -93,7 +98,7 @@ GET /api/view
 
 ## 后续改进计划
 - [x] API 防止滥用功能
-- [ ] 提供统计相关的 API
+- [x] 提供统计相关的 API
 - [ ] 粒度细化
 - [ ] 引入缓存
 - [ ] 容器化
